@@ -1,0 +1,186 @@
+#!/usr/bin/env node
+
+// 'use strict';
+
+var commander = require('commander');
+var fs        = require('fs');
+var async     = require('async');
+var path      = require('path');
+var ejs       = require('ejs');
+var cjson     = require('cjson');
+var mkdirp    = require('mkdirp');
+var pretty    = require('js-object-pretty-print').pretty;
+
+var pkg       = require('../package.json');
+
+var helpmsg = function() {
+  console.log('  Basic Examples:');
+  console.log('');
+  console.log('  short name:');
+  console.log('');
+  console.log('    $ m+ webapp');
+  console.log('');
+  console.log('  build from template bundle:');
+  console.log('');
+  console.log('    $ meteorpuls webapp');
+  console.log('    $ meteorpuls crud post');
+  console.log('');
+  console.log('  build from single template:');
+  console.log('');
+  console.log('    $ meteorpuls webapp/router');
+  console.log('');
+  console.log('  command help:');
+  console.log('');
+  console.log('    $ meteorpuls -h');
+  console.log('');
+}
+commander.version(pkg.version)
+  .description(pkg.description)
+  .option('-v, --version', 'meteorpuls version')
+  .usage('template collection');
+commander.on('--help', helpmsg);
+
+
+commander.arguments('[template] [collection]')
+  .description('build with template')
+  .action(function(template , collection) {
+
+    var pwd = path.resolve('.');
+    var logs = {
+      command: "meteorplus " + template + " " + (collection?collection:''),
+      timestamp: Math.round(new Date().getTime()/1000),
+      datetime: '',
+      files: []
+    };
+    // console.log("argument"); //project-name
+    // console.log(template); // project-name
+    // console.log(collection); // project-name
+    // console.log("pwd"); //项目地址
+    // console.log(pwd); //项目地址
+    async.waterfall([
+      // 1.检查.meteorplus 或者 .m+ 目录
+        function(callback) {
+          var files = fs.readdirSync(pwd);
+          var templateRoot;
+          files.forEach(function (item) {
+            var info = fs.statSync(pwd + "/" + item);
+            if (info.isDirectory()) {
+              if (item == '.meteorplus' || item == '.m+') {
+                templateRoot = pwd + "/" + item;
+              }
+            } 
+          });
+          if (templateRoot) {
+            callback(null, templateRoot);
+          }else{
+            callback(new Error("Error: Templates directory not found."));
+          }
+        },
+        // 2.根据命令参数找到模板和数据文件
+        function(templateRoot, callback) {
+          if (collection) {
+            var collectionJs = templateRoot + '/collections/' + collection + '.js';
+            try{
+              fs.accessSync(collectionJs, fs.F_OK);
+            }catch(e){
+              callback(new Error("Error: Collections file not found."));
+            }
+          }
+
+          if (template) {
+            var templateFile = templateRoot + '/templates/' + template ;
+            try{
+              fs.accessSync(templateFile, fs.F_OK);
+            }catch(e){
+              callback(new Error("Error: Templates file not found."));
+            }
+          }
+          
+          callback(null,templateFile, collectionJs);
+        },
+        // 3.根据规则集成文件并生成
+        function(templateFile, collectionJs, callback) {
+          var collections = require(collectionJs);
+          // console.log(collections);
+          var files = fs.readdirSync(templateFile);
+
+          async.map(files , function(file, callback2 ){
+            fs.readFile(templateFile + "/" + file, {encoding: 'utf8'}, function(err, content) {
+              if(err) {
+                callback2(err);
+              } else {
+                var ejsOptions = {};
+                var content = ejs.compile(content, ejsOptions)({
+                  collections: collections,
+                  collection: collection
+                });
+
+                writeFile(pwd + '/' + analysis(file, collection), 
+                  content,
+                  analysisAppend(file),
+                  callback2
+                  );
+              } 
+            });
+          },function(err, result){
+            // result
+            callback(null, 'ok')
+          });
+        },
+        // 4。备份生成文件
+        // 5，生成备份日志
+        function(msg, callback){
+          // console.log(logs);
+          callback(null, 'ok');
+        }
+    ], function (err, result) {
+      if (err) {
+        console.log(err.message);
+      }else{
+        // result now equals 'done' 
+        console.log("==" + result);
+      }
+    });
+  });
+
+
+commander.parse(process.argv);
+
+writeFile = function(file , content , append, callback){
+  mkdirp.sync(analysisDir(file));
+  if (append) {
+    fs.appendFile(file,
+      content, 
+      (err) => {
+        if (err) throw err;
+        callback(null, "Append: " + file );
+    });
+  }else{
+    fs.writeFile(file,
+      content, 
+      (err) => {
+        if (err) throw err;
+        callback(null, "Override: " + file);
+    });
+  }
+}
+
+analysis = function(str, name){
+  var result = str.replace(/\-/g , name);
+  result = result.replace(/_/g ,'/');
+  result = result.replace('+' ,'');
+  return result;
+}
+
+analysisDir = function(file){
+  return file.substring(0, file.lastIndexOf('/'));
+}
+
+analysisAppend = function(file){
+  return /\+/.test(file);
+}
+
+ejs.filters.toJSON = function(obj) {
+  var str = pretty(obj, 4, 'PRINT' , true);
+  return str.replace(/function (.+)\(.+\n/g, "$1,\n")
+};

@@ -1,0 +1,42 @@
+{
+  "bin": {
+    "meteorplus": "./bin/meteorplus",
+    "m+": "./bin/meteorplus"
+  },
+  "name": "meteorplus",
+  "version": "1.0.10",
+  "description": "Meteorplus is a meteor project scaffolding tools",
+  "main": "index.js",
+  "scripts": {
+    "test": "test/index.js"
+  },
+  "author": {
+    "email": "romejiang@gmail.com",
+    "name": "Jinag Tao"
+  },
+  "keywords": [
+    "meteor",
+    "scaffolding"
+  ],
+  "homepage": "https://github.com/romejiang/meteorplus",
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:romejiang/meteorplus.git"
+  },
+  "bugs": {
+    "url": "https://github.com/romejiang/meteorplus/issues"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "async": "^1.5.0",
+    "cjson": "0.4.x",
+    "colors": "1.1.x",
+    "commander": "2.9.x",
+    "debug": "2.x.x",
+    "js-object-pretty-print": "^0.2.0",
+    "mkdirp": "^0.5.1",
+    "rimraf": "2.5.x",
+    "underscore": "1.x.x",
+    "uuid": "2.x.x"
+  }
+}
