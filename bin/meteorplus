@@ -1,186 +1,230 @@
 #!/usr/bin/env node
 
 // 'use strict';
-
 var commander = require('commander');
-var fs        = require('fs');
-var async     = require('async');
-var path      = require('path');
-var ejs       = require('ejs');
-var cjson     = require('cjson');
-var mkdirp    = require('mkdirp');
-var pretty    = require('js-object-pretty-print').pretty;
-
-var pkg       = require('../package.json');
-
+var fs = require('fs');
+var async = require('async');
+var path = require('path');
+var ejs = require('ejs');
+var cjson = require('cjson');
+var mkdirp = require('mkdirp');
+var pretty = require('js-object-pretty-print').pretty;
+var pkg = require('../package.json');
 var helpmsg = function() {
-  console.log('  Basic Examples:');
-  console.log('');
-  console.log('  short name:');
-  console.log('');
-  console.log('    $ m+ webapp');
-  console.log('');
-  console.log('  build from template bundle:');
-  console.log('');
-  console.log('    $ meteorpuls webapp');
-  console.log('    $ meteorpuls crud post');
-  console.log('');
-  console.log('  build from single template:');
-  console.log('');
-  console.log('    $ meteorpuls webapp/router');
-  console.log('');
-  console.log('  command help:');
-  console.log('');
-  console.log('    $ meteorpuls -h');
-  console.log('');
+    console.log('  Basic Examples:');
+    console.log('');
+    console.log('  short name:');
+    console.log('');
+    console.log('    $ m+ webapp');
+    console.log('');
+    console.log('  build from template bundle:');
+    console.log('');
+    console.log('    $ meteorpuls webapp');
+    console.log('    $ meteorpuls crud post');
+    console.log('');
+    console.log('  build from single template:');
+    console.log('');
+    console.log('    $ meteorpuls webapp/router');
+    console.log('');
+    console.log('  command help:');
+    console.log('');
+    console.log('    $ meteorpuls -h');
+    console.log('');
 }
-commander.version(pkg.version)
-  .description(pkg.description)
-  .option('-v, --version', 'meteorpuls version')
-  .usage('template collection');
+var logs = {};
+commander.version(pkg.version).description(pkg.description).option('-v, --version', 'meteorpuls version').usage('template collection');
 commander.on('--help', helpmsg);
-
-
-commander.arguments('[template] [collection]')
-  .description('build with template')
-  .action(function(template , collection) {
-
+commander.arguments('[template] [collection]').description('build with template').action(function(template, collection) {
     var pwd = path.resolve('.');
-    var logs = {
-      command: "meteorplus " + template + " " + (collection?collection:''),
-      timestamp: Math.round(new Date().getTime()/1000),
-      datetime: '',
-      files: []
+    logs = {
+        command: "meteorplus " + template + " " + (collection ? collection : ''),
+        timestamp: Math.round(new Date().getTime() / 1000),
+        datetime: prettyDate(),
+        files: []
     };
     // console.log("argument"); //project-name
     // console.log(template); // project-name
     // console.log(collection); // project-name
     // console.log("pwd"); //项目地址
     // console.log(pwd); //项目地址
+    /**
+     * 执行同步任务
+     */
     async.waterfall([
-      // 1.检查.meteorplus 或者 .m+ 目录
+        // 1.检查.meteorplus 或者 .m+ 目录，这两个目录都可以是模板和数据目录
+        // TODO:
+        // 下一步需要吧这个目录扩展到meteorpuls 项目下，可以实现自带模板
+        // 
         function(callback) {
-          var files = fs.readdirSync(pwd);
-          var templateRoot;
-          files.forEach(function (item) {
-            var info = fs.statSync(pwd + "/" + item);
-            if (info.isDirectory()) {
-              if (item == '.meteorplus' || item == '.m+') {
-                templateRoot = pwd + "/" + item;
-              }
-            } 
-          });
-          if (templateRoot) {
-            callback(null, templateRoot);
-          }else{
-            callback(new Error("Error: Templates directory not found."));
-          }
+            var files = fs.readdirSync(pwd);
+            var templateRoot;
+            files.forEach(function(item) {
+                var info = fs.statSync(pwd + "/" + item);
+                if (info.isDirectory()) {
+                    if (item == '.meteorplus' || item == '.m+') {
+                        templateRoot = pwd + "/" + item;
+                    }
+                }
+            });
+            if (templateRoot) {
+                callback(null, templateRoot);
+            } else {
+                callback(new Error("Error: Templates directory not found."));
+            }
         },
         // 2.根据命令参数找到模板和数据文件
+        // TODO:
+        // 这里还没有判断，没有数据文件的情况
         function(templateRoot, callback) {
-          if (collection) {
-            var collectionJs = templateRoot + '/collections/' + collection + '.js';
-            try{
-              fs.accessSync(collectionJs, fs.F_OK);
-            }catch(e){
-              callback(new Error("Error: Collections file not found."));
+            if (collection) {
+                var collectionJs = templateRoot + '/collections/' + collection + '.js';
+                try {
+                    fs.accessSync(collectionJs, fs.F_OK);
+                } catch (e) {
+                    callback(new Error("Error: Collections file not found."));
+                }
             }
-          }
-
-          if (template) {
-            var templateFile = templateRoot + '/templates/' + template ;
-            try{
-              fs.accessSync(templateFile, fs.F_OK);
-            }catch(e){
-              callback(new Error("Error: Templates file not found."));
+            if (template) {
+                var templateFile = templateRoot + '/templates/' + template;
+                try {
+                    fs.accessSync(templateFile, fs.F_OK);
+                } catch (e) {
+                    callback(new Error("Error: Templates file not found."));
+                }
             }
-          }
-          
-          callback(null,templateFile, collectionJs);
+            callback(null, templateFile, collectionJs, templateRoot);
         },
         // 3.根据规则集成文件并生成
-        function(templateFile, collectionJs, callback) {
-          var collections = require(collectionJs);
-          // console.log(collections);
-          var files = fs.readdirSync(templateFile);
+        // 
+        function(templateFile, collectionJs, templateRoot, callback) {
+            var collections = require(collectionJs);
 
-          async.map(files , function(file, callback2 ){
-            fs.readFile(templateFile + "/" + file, {encoding: 'utf8'}, function(err, content) {
-              if(err) {
-                callback2(err);
-              } else {
-                var ejsOptions = {};
-                var content = ejs.compile(content, ejsOptions)({
-                  collections: collections,
-                  collection: collection
+            var backupDir = templateRoot + "/backup";
+            var files = fs.readdirSync(templateFile);
+            
+            async.map(files, function(file, callback2) {
+                fs.readFile(templateFile + "/" + file, {
+                    encoding: 'utf8'
+                }, function(err, content) {
+                    if (err) {
+                        callback2(err);
+                    } else {
+                        var ejsOptions = {};
+                        var content = ejs.compile(content, ejsOptions)({
+                            collections: collections,
+                            collection: collection
+                        });
+                        writeFile(pwd + '/' + analysis(file, collection), 
+                            backupDir + '/' + logs.timestamp + '/' + analysis(file, collection), 
+                            content, 
+                            analysisAppend(file), 
+                            callback2);
+                    }
                 });
-
-                writeFile(pwd + '/' + analysis(file, collection), 
-                  content,
-                  analysisAppend(file),
-                  callback2
-                  );
-              } 
+            }, function(err, result) {
+                callback(null, templateRoot)
             });
-          },function(err, result){
-            // result
-            callback(null, 'ok')
-          });
         },
         // 4。备份生成文件
         // 5，生成备份日志
-        function(msg, callback){
-          // console.log(logs);
-          callback(null, 'ok');
+        function(templateRoot, callback) {
+            var logfile = templateRoot + "/logs.js";
+            fs.appendFile(logfile, pretty(logs, 4, 'PRINT', true), (err) => {
+                if (err) throw err;
+                callback(null, 'build complete\nlogs complete\nlogs file to ' + logfile);
+            });
         }
-    ], function (err, result) {
-      if (err) {
-        console.log(err.message);
-      }else{
-        // result now equals 'done' 
-        console.log("==" + result);
-      }
+    ], function(err, result) {
+        if (err) {
+            console.log(err.message);
+        } else {
+            console.log(result);
+        }
     });
-  });
+});
 
-
-commander.parse(process.argv);
-
-writeFile = function(file , content , append, callback){
-  mkdirp.sync(analysisDir(file));
-  if (append) {
-    fs.appendFile(file,
-      content, 
-      (err) => {
-        if (err) throw err;
-        callback(null, "Append: " + file );
-    });
-  }else{
-    fs.writeFile(file,
-      content, 
-      (err) => {
-        if (err) throw err;
-        callback(null, "Override: " + file);
-    });
-  }
+/**
+ * [prettyDate 日期格式化]
+ * @return {[type]} [description]
+ */
+prettyDate = function() {
+    var d = new Date();
+    return d.getFullYear() + "年" + (d.getMonth() + 1) + "月" + d.getDate() + "日 " + (d.getHours()) + ":" + (d.getMinutes());
 }
 
-analysis = function(str, name){
-  var result = str.replace(/\-/g , name);
-  result = result.replace(/_/g ,'/');
-  result = result.replace('+' ,'');
-  return result;
+/**
+ * [writeFile 根据参数写入或覆盖目标文件，根据文件是否存在，备份可能被覆盖的文件]
+ * @param  {[type]}   file       [description]
+ * @param  {[type]}   backupFile [description]
+ * @param  {[type]}   content    [description]
+ * @param  {[type]}   append     [description]
+ * @param  {Function} callback   [description]
+ * @return {[type]}              [description]
+ */
+writeFile = function(file, backupFile, content, append, callback) {
+    mkdirp.sync(analysisDir(file));
+    mkdirp.sync(analysisDir(backupFile));
+    // 检查生成的目标文件是否存在，存在的话，备份一份到备份目录，并添加备份日志
+    try {
+        fs.accessSync(file, fs.F_OK)
+        logs.files.push(backupFile)
+        fs.createReadStream(file).pipe(fs.createWriteStream(backupFile));
+    } catch (e) {
+        // console.log(e);
+        // console.log("not exits: " + file);
+    }
+    // 根据append 参数判断是覆盖还是添加
+    if (append) {
+        fs.appendFile(file, content, (err) => {
+            if (err) throw err;
+            callback(null, "Append: " + file);
+        });
+    } else {
+        fs.writeFile(file, content, (err) => {
+            if (err) throw err;
+            callback(null, "Override: " + file);
+        });
+    }
 }
-
-analysisDir = function(file){
-  return file.substring(0, file.lastIndexOf('/'));
+/**
+ * 分析模板名称，转换成生成目录
+ * @param  {[type]} str  [description]
+ * @param  {[type]} name [description]
+ * @return {[type]}      [description]
+ */
+analysis = function(str, name) {
+    var result = str.replace(/\-/g, name);
+    result = result.replace(/_/g, '/');
+    result = result.replace('+', '');
+    return result;
 }
-
-analysisAppend = function(file){
-  return /\+/.test(file);
+/**
+ * [analysisDir 获取文件目录，用于生成目录]
+ * @param  {[type]} file [description]
+ * @return {[type]}      [description]
+ */
+analysisDir = function(file) {
+    return file.substring(0, file.lastIndexOf('/'));
 }
-
+/**
+ * [analysisAppend 判断模板文件是否是追加模式]
+ * @param  {[type]} file [description]
+ * @return {[type]}      [description]
+ */
+analysisAppend = function(file) {
+    return /\+/.test(file);
+}
+/**
+ * [toJSON 对象转换字符串 filter]
+ * @param  {[type]} obj [description]
+ * @return {[type]}     [description]
+ */
 ejs.filters.toJSON = function(obj) {
-  var str = pretty(obj, 4, 'PRINT' , true);
-  return str.replace(/function (.+)\(.+\n/g, "$1,\n")
+    var str = pretty(obj, 4, 'PRINT', true);
+    str = str.replace(/function (.+)\(.+\n/g, "$1,\n");
+    str = str.replace(/regEx: "(.+)"/g, "regEx: $1");
+    return str;
 };
+
+// 主入口
+commander.parse(process.argv);
