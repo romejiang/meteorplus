@@ -1,15 +1,20 @@
 #!/usr/bin/env node
 
 // 'use strict';
-var commander = require('commander');
+var _ = require('underscore');
 var fs = require('fs');
-var async = require('async');
-var path = require('path');
+var fse = require('fs-extra')
+var pkg = require('../package.json');
 var ejs = require('ejs');
+var path = require('path');
+var async = require('async');
 var cjson = require('cjson');
 var mkdirp = require('mkdirp');
 var pretty = require('js-object-pretty-print').pretty;
-var pkg = require('../package.json');
+var commander = require('commander');
+// ====================================================
+//     帮助信息
+// ==================================================== 
 var helpmsg = function() {
     console.log('  Basic Examples:');
     console.log('');
@@ -34,7 +39,10 @@ var helpmsg = function() {
 var logs = {};
 commander.version(pkg.version).description(pkg.description).option('-v, --version', 'meteorpuls version').usage('template collection');
 commander.on('--help', helpmsg);
-commander.arguments('[template] [collection]').description('build with template').action(function(template, collection) {
+// ====================================================
+//     主命令，根据模板和数据生成代码文件
+// ====================================================
+commander.arguments('<template> <collection>').description('build with template').action(function(template, collection) {
     var pwd = path.resolve('.');
     logs = {
         command: "meteorplus " + template + " " + (collection ? collection : ''),
@@ -98,10 +106,8 @@ commander.arguments('[template] [collection]').description('build with template'
         // 
         function(templateFile, collectionJs, templateRoot, callback) {
             var collections = require(collectionJs);
-
             var backupDir = templateRoot + "/backup";
             var files = fs.readdirSync(templateFile);
-            
             async.map(files, function(file, callback2) {
                 fs.readFile(templateFile + "/" + file, {
                     encoding: 'utf8'
@@ -114,11 +120,7 @@ commander.arguments('[template] [collection]').description('build with template'
                             collections: collections,
                             collection: collection
                         });
-                        writeFile(pwd + '/' + analysis(file, collection), 
-                            backupDir + '/' + logs.timestamp + '/' + analysis(file, collection), 
-                            content, 
-                            analysisAppend(file), 
-                            callback2);
+                        writeFile(pwd + '/' + analysis(file, collection), backupDir + '/' + logs.timestamp + '/' + analysis(file, collection), content, analysisAppend(file), callback2);
                     }
                 });
             }, function(err, result) {
@@ -142,89 +144,271 @@ commander.arguments('[template] [collection]').description('build with template'
         }
     });
 });
-
+commander.command('update').description('update imports file').action(function(template, collection) {
+    var pwd = path.resolve('.');
+    /**
+     * 1.
+     */
+    async.waterfall([
+        // ====================================================
+        //     生成client
+        // ====================================================
+        function(callback) {
+            var client = '';
+            client += '// utilitys\n';
+            if (fs.existsSync(pwd + '/imports/utilitys.js')) {
+                client += "import '/imports/utilitys.js';\n";
+            }
+            client += '// startup\n';
+            if (fs.existsSync(pwd + '/imports/startup.js')) {
+                client += "import '/imports/startup.js';\n";
+            }
+            client += '// router\n';
+            if (fs.existsSync(pwd + '/imports/router.js')) {
+                client += "import '/imports/router.js';\n";
+            }
+            client += '// helper\n';
+            if (fs.existsSync(pwd + '/imports/helper.js')) {
+                client += "import '/imports/helper.js';\n";
+            }
+            var filelist = walkSync(pwd + '/imports')
+                // for (var i = filelist.length - 1; i >= 0; i--) {
+                //     console.log(filelist[i]);
+                // }
+            client += '// stylesheets \n';
+            _.each(filelist, function(obj) {
+                if (/[^.]+$/.exec(obj) == 'less') {
+                    client += "import '" + (obj.replace(pwd, '')) + "';\n";
+                }
+            });
+            client += '// collections \n';
+            _.each(filelist, function(obj) {
+                var fragment = obj.split(/\/|\./);
+                if (fragment[fragment.length - 2] == fragment[fragment.length - 3]) {
+                    client += "import '" + (obj.replace(pwd, '')) + "';\n";
+                }
+            });
+            client += '// layouts \n';
+            _.each(filelist, function(obj) {
+                if (-1 !== obj.lastIndexOf('layouts')) {
+                    client += "import '" + (obj.replace(pwd, '')) + "';\n";
+                }
+            });
+            client += '// ================================================= \n';
+            client += '// action \n';
+            client += '// ================================================= \n';
+            _.each(filelist, function(obj) {
+                if (/[^.]+$/.exec(obj) == 'js') {
+                    var fragment = obj.replace(pwd, '').split(/\/|\./);
+                    if (fragment.length > 4) {
+                        if (fragment[fragment.length - 2] != fragment[fragment.length - 3]) {
+                            if (fragment[fragment.length - 2] != 'publish' && fragment[fragment.length - 2] != 'services') {
+                                client += "import '" + (obj.replace(pwd, '')) + "';\n";
+                            }
+                        }
+                    }
+                }
+            });
+            callback(null, client);
+        },
+        function(client, callback) {
+            client += '// ===customize=== \n';
+            var main = pwd + '/client/main.js';
+            if (fs.existsSync(main)) {
+                var oldfile = fs.readFileSync(main, 'utf8');
+                var custom = false;
+                var file = '';
+                oldfile.split("\n").forEach(function(line, index) {
+                    if (custom) {
+                        file += line + '\n';
+                    }
+                    if (line.indexOf('===customize===') > -1) {
+                        custom = true;
+                    }
+                });
+                client += file;
+            }
+            fs.writeFileSync(main, client);
+            console.log('client ok');
+            callback(null);
+        },
+        // ====================================================
+        //     生成 server
+        // ====================================================
+        function(callback) {
+            var client = '';
+            client += '// utilitys\n';
+            if (fs.existsSync(pwd + '/imports/utilitys.js')) {
+                client += "import '/imports/utilitys.js';\n";
+            }
+            client += '// startup\n';
+            if (fs.existsSync(pwd + '/imports/startup.js')) {
+                client += "import '/imports/startup.js';\n";
+            }
+            
+            var filelist = walkSync(pwd + '/imports')
+                 
+            client += '// collections \n';
+            _.each(filelist, function(obj) {
+                var fragment = obj.split(/\/|\./);
+                if (fragment[fragment.length - 2] == fragment[fragment.length - 3]) {
+                    client += "import '" + (obj.replace(pwd, '')) + "';\n";
+                }
+            });
+            
+            client += '// ================================================= \n';
+            client += '// publish & services \n';
+            client += '// ================================================= \n';
+            _.each(filelist, function(obj) {
+                if (/[^.]+$/.exec(obj) == 'js') {
+                    var fragment = obj.replace(pwd, '').split(/\/|\./);
+                    if (fragment.length > 4) {
+                        if (fragment[fragment.length - 2] != fragment[fragment.length - 3]) {
+                            if (fragment[fragment.length - 2] == 'publish' || fragment[fragment.length - 2] == 'services') {
+                                client += "import '" + (obj.replace(pwd, '')) + "';\n";
+                            }
+                        }
+                    }
+                }
+            });
+            callback(null, client);
+        },
+        function(client, callback) {
+            client += '// ===customize=== \n';
+            var main = pwd + '/server/main.js';
+            if (fs.existsSync(main)) {
+                var oldfile = fs.readFileSync(main, 'utf8');
+                var custom = false;
+                var file = '';
+                oldfile.split("\n").forEach(function(line, index) {
+                    if (custom) {
+                        file += line + '\n';
+                    }
+                    if (line.indexOf('===customize===') > -1) {
+                        custom = true;
+                    }
+                });
+                client += file;
+            }
+            fs.writeFileSync(main, client);
+            console.log('server ok');
+            callback(null);
+        },
+    ], function(err, result) {
+        if (err) {
+            console.log(err.message);
+        }
+    });
+});
+// ====================================================
+//     工具类
+// ====================================================
 /**
  * [prettyDate 日期格式化]
  * @return {[type]} [description]
  */
 prettyDate = function() {
-    var d = new Date();
-    return d.getFullYear() + "年" + (d.getMonth() + 1) + "月" + d.getDate() + "日 " + (d.getHours()) + ":" + (d.getMinutes());
-}
-
-/**
- * [writeFile 根据参数写入或覆盖目标文件，根据文件是否存在，备份可能被覆盖的文件]
- * @param  {[type]}   file       [description]
- * @param  {[type]}   backupFile [description]
- * @param  {[type]}   content    [description]
- * @param  {[type]}   append     [description]
- * @param  {Function} callback   [description]
- * @return {[type]}              [description]
- */
+        var d = new Date();
+        return d.getFullYear() + "年" + (d.getMonth() + 1) + "月" + d.getDate() + "日 " + (d.getHours()) + ":" + (d.getMinutes());
+    }
+    /**
+     * [writeFile 根据参数写入或覆盖目标文件，根据文件是否存在，备份可能被覆盖的文件]
+     * @param  {[type]}   file       [description]
+     * @param  {[type]}   backupFile [description]
+     * @param  {[type]}   content    [description]
+     * @param  {[type]}   append     [description]
+     * @param  {Function} callback   [description]
+     * @return {[type]}              [description]
+     */
 writeFile = function(file, backupFile, content, append, callback) {
-    mkdirp.sync(analysisDir(file));
-    mkdirp.sync(analysisDir(backupFile));
-    // 检查生成的目标文件是否存在，存在的话，备份一份到备份目录，并添加备份日志
-    try {
-        fs.accessSync(file, fs.F_OK)
-        logs.files.push(backupFile)
-        fs.createReadStream(file).pipe(fs.createWriteStream(backupFile));
-    } catch (e) {
-        // console.log(e);
-        // console.log("not exits: " + file);
+        mkdirp.sync(analysisDir(file));
+        mkdirp.sync(analysisDir(backupFile));
+        // 检查生成的目标文件是否存在，存在的话，备份一份到备份目录，并添加备份日志
+        try {
+            // fs.accessSync(file, fs.F_OK)
+            logs.files.push(backupFile)
+                // fs.createReadStream(file).pipe(fs.createWriteStream(backupFile));
+            fse.copySync(file, backupFile);
+        } catch (e) {
+            // console.log(e);
+            // console.log("not exits: " + file);
+        }
+        // 根据append 参数判断是覆盖还是添加
+        if (append) {
+            fs.appendFile(file, content, (err) => {
+                if (err) throw err;
+                callback(null, "Append: " + file);
+            });
+        } else {
+            fs.writeFile(file, content, (err) => {
+                if (err) throw err;
+                callback(null, "Override: " + file);
+            });
+        }
     }
-    // 根据append 参数判断是覆盖还是添加
-    if (append) {
-        fs.appendFile(file, content, (err) => {
-            if (err) throw err;
-            callback(null, "Append: " + file);
-        });
-    } else {
-        fs.writeFile(file, content, (err) => {
-            if (err) throw err;
-            callback(null, "Override: " + file);
-        });
-    }
-}
-/**
- * 分析模板名称，转换成生成目录
- * @param  {[type]} str  [description]
- * @param  {[type]} name [description]
- * @return {[type]}      [description]
- */
+    /**
+     * 分析模板名称，转换成生成目录
+     * @param  {[type]} str  [description]
+     * @param  {[type]} name [description]
+     * @return {[type]}      [description]
+     */
 analysis = function(str, name) {
-    var result = str.replace(/\-/g, name);
-    result = result.replace(/_/g, '/');
-    result = result.replace('+', '');
-    return result;
-}
-/**
- * [analysisDir 获取文件目录，用于生成目录]
- * @param  {[type]} file [description]
- * @return {[type]}      [description]
- */
+        var result = str.replace(/\-/g, name);
+        result = result.replace(/_/g, '/');
+        result = result.replace('+', '');
+        return result;
+    }
+    /**
+     * [analysisDir 获取文件目录，用于生成目录]
+     * @param  {[type]} file [description]
+     * @return {[type]}      [description]
+     */
 analysisDir = function(file) {
-    return file.substring(0, file.lastIndexOf('/'));
-}
-/**
- * [analysisAppend 判断模板文件是否是追加模式]
- * @param  {[type]} file [description]
- * @return {[type]}      [description]
- */
+        return file.substring(0, file.lastIndexOf('/'));
+    }
+    /**
+     * [analysisAppend 判断模板文件是否是追加模式]
+     * @param  {[type]} file [description]
+     * @return {[type]}      [description]
+     */
 analysisAppend = function(file) {
-    return /\+/.test(file);
-}
-/**
- * [toJSON 对象转换字符串 filter]
- * @param  {[type]} obj [description]
- * @return {[type]}     [description]
- */
+        return /\+/.test(file);
+    }
+    /**
+     * [toJSON 对象转换字符串 filter]
+     * @param  {[type]} obj [description]
+     * @return {[type]}     [description]
+     */
 ejs.filters.toJSON = function(obj) {
     var str = pretty(obj, 4, 'PRINT', true);
     str = str.replace(/function (.+)\(.+\n/g, "$1,\n");
     str = str.replace(/regEx: "(.+)"/g, "regEx: $1");
     return str;
 };
-
-// 主入口
+/*
+ * 遍历文件目录
+ */
+walkSync = function(dir, filelist) {
+    var path = path || require('path');
+    var fs = fs || require('fs'),
+        files = fs.readdirSync(dir);
+    filelist = filelist || [];
+    files.forEach(function(file) {
+        if (fs.statSync(path.join(dir, file)).isDirectory()) {
+            filelist = walkSync(path.join(dir, file), filelist);
+        } else {
+            filelist.push(path.join(dir, file));
+        }
+    });
+    return filelist;
+};
+// ====================================================
+//     默认命令为帮助信息
+// ====================================================
+if (process.argv && process.argv.length <= 2) {
+    process.argv.push('-h');
+};
+// ====================================================
+//     主入口
+// ==================================================== 
 commander.parse(process.argv);

@@ -4,7 +4,7 @@
     "m+": "./bin/meteorplus"
   },
   "name": "meteorplus",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "description": "Meteorplus is a meteor project scaffolding tools",
   "main": "index.js",
   "scripts": {
@@ -12,7 +12,7 @@
   },
   "author": {
     "email": "romejiang@gmail.com",
-    "name": "Jinag Tao"
+    "name": "Stephen Jiang"
   },
   "keywords": [
     "meteor",
@@ -30,8 +30,11 @@
   "dependencies": {
     "async": "^1.5.0",
     "commander": "2.9.x",
+    "ejs": "0.8.x",
+    "fs-extra": "^1.0.0",
     "js-object-pretty-print": "^0.2.0",
     "mkdirp": "^0.5.1",
-    "rimraf": "2.5.x"
+    "rimraf": "2.5.x",
+    "underscore": "^1.8.3"
   }
 }
